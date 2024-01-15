@@ -1,8 +1,15 @@
+import 'package:favorite_places/models/place.dart';
+import 'package:favorite_places/screens/map.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:location/location.dart';
+import 'package:geocoding/geocoding.dart' as geo;
 
 class LocationInput extends StatefulWidget {
-  const LocationInput({super.key});
+  const LocationInput({super.key, required this.onSelectPlace});
+
+  final Function onSelectPlace;
 
   @override
   State<LocationInput> createState() {
@@ -11,8 +18,41 @@ class LocationInput extends StatefulWidget {
 }
 
 class _LocationInputState extends State<LocationInput> {
-  Location? _pickedLocation;
+  PlaceLocation? _pickedLocation;
+  late final MapController mapController;
   var _isGettingLocation = false;
+
+  @override
+  void initState() {
+    mapController = MapController();
+    super.initState();
+  }
+
+  Future<List> getLocationAddress(double latitude, double longitude) async {
+    List<geo.Placemark> placemark =
+        await geo.placemarkFromCoordinates(latitude, longitude);
+    return placemark;
+  }
+
+  Future<void> _savePlace(double latitude, double longitude) async {
+    final addressData = await getLocationAddress(latitude, longitude);
+    final String street = addressData[0].street;
+    final String postalcode = addressData[0].postalCode;
+    final String locality = addressData[0].locality;
+    final String country = addressData[0].country;
+    final String address = '$street, $postalcode, $locality, $country';
+
+    setState(() {
+      _pickedLocation = PlaceLocation(
+        latitude: latitude,
+        longitude: longitude,
+        address: address,
+      );
+      _isGettingLocation = false;
+    });
+
+    widget.onSelectPlace(_pickedLocation!.latitude, _pickedLocation!.longitude);
+  }
 
   void _getCurrentLocation() async {
     Location location = Location();
@@ -42,13 +82,37 @@ class _LocationInputState extends State<LocationInput> {
     });
 
     locationData = await location.getLocation();
+    final lat = locationData.latitude;
+    final lng = locationData.longitude;
 
-    setState(() {
-      _isGettingLocation = false;
-    });
+    if (lat == null || lng == null) {
+      return;
+    }
 
-    print(locationData.latitude);
-    print(locationData.longitude);
+    _savePlace(lat, lng);
+  }
+
+  Future<void> _selectOnMap() async {
+    final pickedLocation = await Navigator.of(context).push<LatLng>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (ctx) => const MapScreen(
+          isSelecting: true,
+        ),
+      ),
+    );
+
+    if (pickedLocation == null) {
+      return;
+    }
+
+    _savePlace(pickedLocation.latitude, pickedLocation.longitude);
+  }
+
+  @override
+  void dispose() {
+    mapController.dispose();
+    super.dispose();
   }
 
   @override
@@ -60,6 +124,38 @@ class _LocationInputState extends State<LocationInput> {
             color: Theme.of(context).colorScheme.onBackground,
           ),
     );
+
+    if (_pickedLocation != null) {
+      previewContent = FlutterMap(
+        mapController: mapController,
+        options: MapOptions(
+          interactiveFlags: InteractiveFlag.none,
+          center: LatLng(_pickedLocation!.latitude, _pickedLocation!.longitude),
+          zoom: 13.0,
+        ),
+        children: [
+          TileLayer(
+            urlTemplate:
+                'https://{s}.google.com/vt/lyrs=m&hl={hl}&x={x}&y={y}&z={z}',
+            additionalOptions: const {'hl': 'en'},
+            subdomains: const ['mt0', 'mt1', 'mt2', 'mt3'],
+          ),
+          MarkerLayer(
+            markers: [
+              Marker(
+                point: LatLng(
+                    _pickedLocation!.latitude, _pickedLocation!.longitude),
+                child: const Icon(
+                  Icons.location_on,
+                  size: 25,
+                  color: Colors.blue,
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
+    }
 
     if (_isGettingLocation) {
       previewContent = const CircularProgressIndicator();
@@ -90,10 +186,10 @@ class _LocationInputState extends State<LocationInput> {
             TextButton.icon(
               icon: const Icon(Icons.map),
               label: const Text('Select on Map'),
-              onPressed: () {},
+              onPressed: _selectOnMap,
             ),
           ],
-        )
+        ),
       ],
     );
   }
