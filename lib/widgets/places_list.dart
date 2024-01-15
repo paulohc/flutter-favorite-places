@@ -1,4 +1,4 @@
-import 'package:favorite_places/models/places.dart';
+import 'package:favorite_places/models/place.dart';
 import 'package:favorite_places/screens/places_detail.dart';
 import 'package:flutter/material.dart';
 
